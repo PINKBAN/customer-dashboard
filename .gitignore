@@ -1,10 +1,6 @@
 *.xlsx
 contact/*.xlsx
-contact/build_dashboard.py
 contact/cycle_analysis.json
-contact/generate_html.py
-contact/build_v2.py
-contact/build_v3.py
 contact/data_preview.json
 contact/full_data.json
 contact/shared_state.json
