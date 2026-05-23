@@ -128,7 +128,7 @@ tr.row-upcoming { background:#f0fff4; } tr.row-upcoming:hover { background:#e0ff
     <option value="soon">即将到周期 提前联系</option>
     <option value="upcoming">周期内 可关注</option>
     <option value="normal">按周期正常</option>
-    <option value="checked">今日已勾选</option>
+    <option value="checked">今日已联系</option>
     <option value="unchecked">今日未勾选</option>
   </select>
   <select id="filterReceivable" onchange="renderTable()">
@@ -439,8 +439,8 @@ function getFilteredData() {
     list = list.filter(function(d) { return d.name.toLowerCase().indexOf(search) !== -1 || d.contact.toLowerCase().indexOf(search) !== -1; });
   }
   var ur = document.getElementById('filterUrgency').value;
-  if (ur === 'checked') list = list.filter(function(d) { return checkedSet.has(d.name); });
-  else if (ur === 'unchecked') list = list.filter(function(d) { return !checkedSet.has(d.name); });
+  if (ur === 'checked') list = list.filter(function(d) { return tradedTodayMap.has(d.name) || reasonMap.has(d.name); });
+  else if (ur === 'unchecked') list = list.filter(function(d) { return !tradedTodayMap.has(d.name) && !reasonMap.has(d.name); });
   else if (ur !== 'all') list = list.filter(function(d) { return d.cycleUrgency === ur; });
   var rec = document.getElementById('filterReceivable').value;
   if (rec === 'has') list = list.filter(function(d) { return d.receivable > 0; });
@@ -460,7 +460,7 @@ function renderSummary() {
   var ovd = data.filter(function(d) { return d.cycleUrgency === 'overdue'; }).length;
   var sn = data.filter(function(d) { return d.cycleUrgency === 'soon'; }).length;
   var up = data.filter(function(d) { return d.cycleUrgency === 'upcoming'; }).length;
-  var chk = data.filter(function(d) { return checkedSet.has(d.name); }).length;
+  var contacted = data.filter(function(d) { return tradedTodayMap.has(d.name) || reasonMap.has(d.name); }).length;
   var wc = data.filter(function(d) { return d.hasCycle; }).length;
 
   document.getElementById('summary').innerHTML =
@@ -471,7 +471,7 @@ function renderSummary() {
     '<div class="summary-card" style="border-left:3px solid #1a73e8;"><div class="label">即将到周期 提前联系</div><div class="value" style="color:#1a73e8;">' + sn + '</div></div>' +
     '<div class="summary-card" style="border-left:3px solid #2e7d32;"><div class="label">周期内 可关注</div><div class="value" style="color:#2e7d32;">' + up + '</div></div>' +
 
-    '<div class="summary-card"><div class="label">今日已勾选</div><div class="value" style="color:#1a73e8;">' + chk + '/' + total + '</div></div>';
+    '<div class="summary-card"><div class="label">今日已联系</div><div class="value" style="color:#1a73e8;">' + contacted + '/' + total + '</div></div>';
 }
 
 function renderTabs() {
