@@ -77,6 +77,8 @@ tr.row-upcoming { background:#f0fff4; } tr.row-upcoming:hover { background:#e0ff
 .modal.show { display:flex; }
 .modal-content { background:#fff; border-radius:12px; padding:24px; max-width:500px; width:90%; box-shadow:0 8px 32px rgba(0,0,0,0.2); }
 .modal-content h3 { margin-bottom:16px; }
+.modal-content table { width:100%; border-collapse:collapse; }
+.modal-content th { background:#fafafa; }
 .modal-content textarea { width:100%; height:100px; padding:8px 12px; border:1px solid #ddd; border-radius:6px; font-size:14px; resize:vertical; outline:none; font-family:inherit; }
 .modal-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:12px; }
 .legend { display:flex; gap:16px; padding:0 32px 8px; font-size:12px; color:#888; flex-wrap:wrap; align-items:center; }
@@ -104,6 +106,7 @@ tr.row-upcoming { background:#f0fff4; } tr.row-upcoming:hover { background:#e0ff
     <span style="font-size:12px;opacity:0.9;" id="currentUserDisplay"></span>
     <button class="btn-outline" onclick="refreshFromDB()">刷新</button>
     <button class="btn-outline" onclick="exportData()">导出</button>
+    <button class="btn-outline" onclick="showHistory()">操作记录</button>
     <button class="btn-primary" onclick="saveAll()">保存</button>
   </div>
 </div>
@@ -168,6 +171,16 @@ tr.row-upcoming { background:#f0fff4; } tr.row-upcoming:hover { background:#e0ff
     </table>
   </div>
 </div>
+<div class="modal" id="historyModal">
+  <div class="modal-content" style="max-width:700px;max-height:80vh;overflow-y:auto;">
+    <h3>操作记录</h3>
+    <div id="historyContent" style="font-size:13px;">加载中...</div>
+    <div class="modal-actions">
+      <button class="btn-outline" onclick="document.getElementById('historyModal').classList.remove('show')">关闭</button>
+    </div>
+  </div>
+</div>
+
 <div class="footer">
   <span id="footerInfo"></span>
   <span><span id="syncStatus"></span> · <span id="currentUserLabel"></span></span>
@@ -330,6 +343,44 @@ function refreshFromDB() {
     renderSummary();
     renderTable();
     alert('已刷新！最后同步: ' + lastSync);
+  });
+}
+
+function showHistory() {
+  if (!SB_URL) { alert('数据库未连接'); return; }
+  var modal = document.getElementById('historyModal');
+  var content = document.getElementById('historyContent');
+  modal.classList.add('show');
+  content.innerHTML = '加载中...';
+
+  fetch(SB_URL + '/rest/v1/customer_state?select=name,checked,reason,updated_by,updated_at&order=updated_at.desc&limit=50', {
+    headers: sbHeaders()
+  }).then(function(r) { return r.json(); })
+  .then(function(rows) {
+    if (!rows || rows.length === 0) {
+      content.innerHTML = '<p style="color:#999;">暂无操作记录</p>';
+      return;
+    }
+    var html = '<table style="width:100%;border-collapse:collapse;font-size:12px;">' +
+      '<tr style="background:#fafafa;"><th style="padding:8px;text-align:left;border-bottom:2px solid #e0e0e0;">客户</th>' +
+      '<th style="padding:8px;text-align:center;border-bottom:2px solid #e0e0e0;">勾选</th>' +
+      '<th style="padding:8px;text-align:left;border-bottom:2px solid #e0e0e0;">不拿货原因</th>' +
+      '<th style="padding:8px;text-align:left;border-bottom:2px solid #e0e0e0;">操作人</th>' +
+      '<th style="padding:8px;text-align:left;border-bottom:2px solid #e0e0e0;">时间</th></tr>';
+    rows.forEach(function(r) {
+      var dt = r.updated_at ? new Date(r.updated_at).toLocaleString('zh-CN') : '-';
+      var checkedHtml = r.checked ? '<span style="color:#2e7d32;">✓</span>' : '<span style="color:#999;">✗</span>';
+      html += '<tr style="border-bottom:1px solid #f0f0f0;">' +
+        '<td style="padding:6px 8px;">' + (r.name || '').replace(/</g, '&lt;') + '</td>' +
+        '<td style="padding:6px 8px;text-align:center;">' + checkedHtml + '</td>' +
+        '<td style="padding:6px 8px;">' + (r.reason || '-') + '</td>' +
+        '<td style="padding:6px 8px;">' + (r.updated_by || '-') + '</td>' +
+        '<td style="padding:6px 8px;color:#888;">' + dt + '</td></tr>';
+    });
+    html += '</table>';
+    content.innerHTML = html;
+  }).catch(function(e) {
+    content.innerHTML = '<p style="color:#e53935;">加载失败: ' + e.message + '</p>';
   });
 }
 
