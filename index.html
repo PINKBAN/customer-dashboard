@@ -394,7 +394,6 @@ function renderSummary() {
   var ovd = data.filter(function(d) { return d.cycleUrgency === 'overdue'; }).length;
   var sn = data.filter(function(d) { return d.cycleUrgency === 'soon'; }).length;
   var up = data.filter(function(d) { return d.cycleUrgency === 'upcoming'; }).length;
-  var recTotal = data.reduce(function(s, d) { return s + (d.receivable || 0); }, 0);
   var chk = data.filter(function(d) { return checkedSet.has(d.name); }).length;
   var wc = data.filter(function(d) { return d.hasCycle; }).length;
 
@@ -405,7 +404,7 @@ function renderSummary() {
     '<div class="summary-card" style="border-left:3px solid #ef6c00;"><div class="label">已超期 建议联系</div><div class="value" style="color:#ef6c00;">' + ovd + '</div></div>' +
     '<div class="summary-card" style="border-left:3px solid #1a73e8;"><div class="label">即将到周期 提前联系</div><div class="value" style="color:#1a73e8;">' + sn + '</div></div>' +
     '<div class="summary-card" style="border-left:3px solid #2e7d32;"><div class="label">周期内 可关注</div><div class="value" style="color:#2e7d32;">' + up + '</div></div>' +
-    '<div class="summary-card"><div class="label">应收总额</div><div class="value" style="color:#e53935;">' + recTotal.toLocaleString('zh-CN', {maximumFractionDigits:0}) + '</div></div>' +
+
     '<div class="summary-card"><div class="label">今日已勾选</div><div class="value" style="color:#1a73e8;">' + chk + '/' + total + '</div></div>';
 }
 
