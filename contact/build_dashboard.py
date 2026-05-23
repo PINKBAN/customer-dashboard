@@ -269,9 +269,46 @@ def main():
     print(f"=== 客户联络看板 — 数据更新 ===")
     print(f"日期: {today}")
 
-    # 文件路径
-    sales_file = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "contact", "5.22.xlsx")
-    contact_file = sys.argv[2] if len(sys.argv) > 2 else os.path.join(ROOT, "contact", "客户联络.xlsx")
+    # 客户联络文件：优先使用最新日期的版本
+    contact_dir = os.path.join(ROOT, "contact")
+    contact_file = os.path.join(contact_dir, "客户联络.xlsx")
+    # 如果有更新的客户联络文件（如5.23.xlsx这种18列的），自动使用
+    for f in sorted(os.listdir(contact_dir), reverse=True):
+        fpath = os.path.join(contact_dir, f)
+        if f.endswith('.xlsx') and f != '客户联络.xlsx' and os.path.getsize(fpath) < 500_000:
+            # 检查是否是客户联络表（18列）
+            try:
+                wb = openpyxl.load_workbook(fpath, data_only=True)
+                ws = wb.active
+                if ws.max_column == 18 and ws.max_row < 2000:
+                    contact_file = fpath
+                    print(f"自动选择最新客户联络: {os.path.basename(contact_file)}")
+                    wb.close()
+                    break
+                wb.close()
+            except:
+                pass
+
+    if len(sys.argv) > 1:
+        sales_file = sys.argv[1]
+        if not os.path.isabs(sales_file):
+            sales_file = os.path.join(contact_dir, sales_file)
+    else:
+        # 自动找最新的销售数据文件（大文件>500KB），排除客户联络表（小文件）
+        xlsx_files = []
+        for f in os.listdir(contact_dir):
+            if f.endswith('.xlsx') and '客户联络' not in f:
+                fpath = os.path.join(contact_dir, f)
+                # 销售数据文件通常 > 1MB，客户联络表 < 500KB
+                if os.path.getsize(fpath) > 500_000:
+                    xlsx_files.append((os.path.getmtime(fpath), fpath))
+        if xlsx_files:
+            xlsx_files.sort(reverse=True)
+            sales_file = xlsx_files[0][1]
+            print(f"自动选择最新销售文件: {os.path.basename(sales_file)}")
+        else:
+            print("错误: 未找到销售数据文件（>500KB的xlsx），请放入 contact 文件夹")
+            sys.exit(1)
 
     print(f"销售数据: {sales_file}")
     print(f"客户联络: {contact_file}")
