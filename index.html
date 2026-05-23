@@ -408,12 +408,12 @@ function renderSummary() {
 }
 
 function renderTabs() {
-  var html = '<div class="tab' + (currentManager === '全部' ? ' active' : '') + '" onclick="switchManager('全部')">全部<span class="badge">' + FULL_DATA.length + '</span></div>';
+  var html = '<div class="tab' + (currentManager === '全部' ? ' active' : '') + '" onclick="switchManager(&quot;全部&quot;)">全部<span class="badge">' + FULL_DATA.length + '</span></div>';
   MANAGERS.forEach(function(mgr) {
     var md = FULL_DATA.filter(function(d) { return d.manager === mgr; });
     var urg = md.filter(function(d) { return d.cycleUrgency === 'urgent'; }).length;
     var sn = md.filter(function(d) { return d.cycleUrgency === 'soon'; }).length;
-    html += '<div class="tab' + (currentManager === mgr ? ' active' : '') + '" onclick="switchManager('' + mgr + '')">' + mgr + '<span class="badge">' + urg + '</span><span class="badge-soon">' + sn + '</span></div>';
+    html += '<div class="tab' + (currentManager === mgr ? ' active' : '') + '" onclick="switchManager(&quot;' + mgr + '&quot;)">' + mgr + '<span class="badge">' + urg + '</span><span class="badge-soon">' + sn + '</span></div>';
   });
   document.getElementById('tabs').innerHTML = html;
 }
