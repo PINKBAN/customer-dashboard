@@ -97,7 +97,7 @@ tr.row-upcoming { background:#f0fff4; } tr.row-upcoming:hover { background:#e0ff
 <body>
 <div class="header">
   <div>
-    <h1>客户联络管理看板（拿货周期分析）</h1>
+    <h1 id="mainTitle" style="cursor:default;">客户联络管理看板（拿货周期分析）</h1>
     <div class="date">
       数据截止：2026-05-23 | <span id="serverStatus"><span class="status-dot offline"></span>未连接数据库</span>
     </div>
@@ -106,7 +106,6 @@ tr.row-upcoming { background:#f0fff4; } tr.row-upcoming:hover { background:#e0ff
     <span style="font-size:12px;opacity:0.9;" id="currentUserDisplay"></span>
     <button class="btn-outline" onclick="refreshFromDB()">刷新</button>
     <button class="btn-outline" onclick="exportData()">导出</button>
-    <button class="btn-outline" onclick="showHistory()">操作记录</button>
     <button class="btn-primary" onclick="saveAll()">保存</button>
   </div>
 </div>
@@ -226,6 +225,16 @@ var lastSync = '';
   }
   document.getElementById('currentUserDisplay').textContent = currentUser;
   document.getElementById('currentUserLabel').textContent = '操作人: ' + currentUser;
+  // 标题三连击打开操作记录（隐藏功能）
+  (function() {
+    var clicks = 0, last = 0;
+    document.getElementById('mainTitle').onclick = function() {
+      var now = Date.now();
+      clicks = (now - last < 2000) ? clicks + 1 : 1;
+      last = now;
+      if (clicks >= 3) { clicks = 0; showHistory(); }
+    };
+  })();
   // Always render immediately with local data first
   renderTabs();
   renderSummary();
