@@ -318,6 +318,14 @@ def main():
     customers = load_customers(contact_file)
     print(f"  客户数: {len(customers)}")
 
+    # 将超期>=100天的客户归类到"未激活客户"
+    inactive = 0
+    for c in customers:
+        if c["noTradeDays"] >= 100:
+            c["manager"] = "未激活客户"
+            inactive += 1
+    print(f"  未激活客户(>=100天未交易): {inactive}")
+
     print("[2/4] 加载销售明细...")
     sales = load_sales(sales_file)
     # 按日期数排序显示top客户
