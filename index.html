@@ -298,7 +298,7 @@ function saveToDB(updates, callback) {
     });
   });
 
-  fetch(SB_URL + '/rest/v1/customer_state', {
+  fetch(SB_URL + '/rest/v1/customer_state?on_conflict=name', {
     method: 'POST',
     headers: Object.assign({}, sbHeaders(), {
       'Prefer': 'resolution=merge-duplicates',
