@@ -227,6 +227,8 @@ var lastSync = '';
 
 function startAutoSync() {
   setInterval(function() {
+    var active = document.activeElement;
+    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return;
     loadStateFromDB(function() {
       renderSummary();
       renderTable();
