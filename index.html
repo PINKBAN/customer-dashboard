@@ -163,6 +163,7 @@ tr.row-upcoming { background:#f0fff4; } tr.row-upcoming:hover { background:#e0ff
           <th>负责人/电话</th>
           <th>标签</th>
           <th onclick="sortTable('cycleUrgency')" style="min-width:180px;">联系建议 <span class="sort-icon">⇅</span></th>
+          <th style="min-width:70px;">今日交易</th>
           <th style="min-width:150px;">不拿货原因</th>
         </tr>
       </thead>
@@ -214,6 +215,7 @@ var currentManager = '全部';
 var currentSort = { field: 'cycleUrgency', asc: true };
 var checkedSet = new Map();
 var reasonMap = new Map();
+var tradedTodayMap = new Map();
 var currentUser = localStorage.getItem('ccc_user') || '';
 var lastSync = '';
 
@@ -279,10 +281,12 @@ function loadStateFromDB(callback, silent) {
     if (!rows) return;
     checkedSet.clear();
     reasonMap.clear();
+    tradedTodayMap.clear();
     var latest = '';
     rows.forEach(function(row) {
       if (row.checked) checkedSet.set(row.name, true);
       if (row.reason) reasonMap.set(row.name, row.reason);
+      if (row.traded_today !== null && row.traded_today !== undefined) tradedTodayMap.set(row.name, row.traded_today);
       if (row.updated_at > latest) latest = row.updated_at;
     });
     lastSync = latest ? new Date(latest).toLocaleString('zh-CN') : '';
@@ -317,6 +321,7 @@ function saveToDB(updates, callback) {
       name: u.name,
       checked: u.checked,
       reason: u.reason || '',
+      traded_today: u.traded_today !== undefined ? u.traded_today : null,
       updated_by: currentUser,
       updated_at: new Date().toISOString()
     });
@@ -403,7 +408,8 @@ function saveAll() {
     updates.push({
       name: name,
       checked: checkedSet.has(name),
-      reason: reasonMap.get(name) || ''
+      reason: reasonMap.get(name) || '',
+      traded_today: tradedTodayMap.has(name) ? tradedTodayMap.get(name) : null
     });
   });
   if (updates.length === 0) { alert('没有需要保存的数据'); return; }
@@ -497,7 +503,7 @@ function toggleAll(cb) {
 function toggleCheck(name) {
   var was = checkedSet.has(name);
   if (was) checkedSet.delete(name); else checkedSet.set(name, true);
-  saveToDB([{ name: name, checked: !was, reason: reasonMap.get(name) || '' }]);
+  saveToDB([{ name: name, checked: !was, reason: reasonMap.get(name) || '', traded_today: tradedTodayMap.has(name) ? tradedTodayMap.get(name) : null }]);
   renderSummary();
 }
 
@@ -531,6 +537,7 @@ function renderTable() {
     var d = list[i];
     var checked = checkedSet.has(d.name);
     var reason = reasonMap.get(d.name) || '';
+    var tradedToday = tradedTodayMap.has(d.name) ? tradedTodayMap.get(d.name) : null;
     var rowClass = 'row-' + d.cycleUrgency;
     if (checked) rowClass += ' edited';
     if (reason) rowClass += ' edited';
@@ -580,6 +587,7 @@ function renderTable() {
       '<td style="font-size:11px;">' + contactHtml + '</td>' +
       '<td style="max-width:100px;font-size:10px;">' + (tagHtml || '-') + '</td>' +
       '<td><div class="' + suggClass + '">' + d.suggestion + '</div></td>' +
+      '<td><select style="width:auto;min-width:60px;padding:4px 8px;border:1px solid #e0e0e0;border-radius:4px;font-size:12px;" onchange="updateTradedToday(\'' + nameEsc + '\', this.value)" onclick="event.stopPropagation()"><option value="">-</option><option value="yes"' + (tradedToday === true ? ' selected' : '') + '>是</option><option value="no"' + (tradedToday === false ? ' selected' : '') + '>否</option></select></td>' +
       '<td><input type="text" class="reason-input" placeholder="输入原因..." value="' + reasonEsc + '" onchange="updateReason(\'' + nameEsc + '\', this.value)" onclick="event.stopPropagation()"></td>' +
       '</tr>';
   }
@@ -591,13 +599,20 @@ function renderTable() {
   document.getElementById('tableBody').innerHTML = html;
   document.getElementById('statsBar').innerHTML = '显示 <strong>' + list.length + '</strong> 条';
   var twc = FULL_DATA.filter(function(d){return d.hasCycle;}).length;
-  document.getElementById('footerInfo').innerHTML = '共 <strong>' + FULL_DATA.length + '</strong> 位 · 有周期 <strong>' + twc + '</strong> 位 · 已勾选 <strong>' + checkedSet.size + '</strong> 位 · 已填原因 <strong>' + reasonMap.size + '</strong> 位';
+  document.getElementById('footerInfo').innerHTML = '共 <strong>' + FULL_DATA.length + '</strong> 位 · 有周期 <strong>' + twc + '</strong> 位 · 已勾选 <strong>' + checkedSet.size + '</strong> 位 · 已填原因 <strong>' + reasonMap.size + '</strong> 位 · 今日已交易 <strong>' + Array.from(tradedTodayMap.values()).filter(function(v){return v===true;}).length + '</strong> 位';
 }
 
 function updateReason(name, value) {
   if (value.trim()) reasonMap.set(name, value.trim());
   else reasonMap.delete(name);
-  saveToDB([{ name: name, checked: checkedSet.has(name), reason: value.trim() }]);
+  saveToDB([{ name: name, checked: checkedSet.has(name), reason: value.trim(), traded_today: tradedTodayMap.has(name) ? tradedTodayMap.get(name) : null }]);
+}
+
+function updateTradedToday(name, value) {
+  if (value === 'yes') tradedTodayMap.set(name, true);
+  else if (value === 'no') tradedTodayMap.set(name, false);
+  else tradedTodayMap.delete(name);
+  saveToDB([{ name: name, checked: checkedSet.has(name), reason: reasonMap.get(name) || '', traded_today: value === 'yes' ? true : (value === 'no' ? false : null) }]);
 }
 
 function resetFilters() {
@@ -611,11 +626,11 @@ function resetFilters() {
 
 function exportData() {
   var list = getFilteredData();
-  var rows = [['客户名称','分管人员','拿货周期(天)','规律性','上次拿货','距上次(天)','应收金额','本月交易额','联系方式','标签','联系建议','不拿货原因','已勾选']];
+  var rows = [['客户名称','分管人员','拿货周期(天)','规律性','上次拿货','距上次(天)','应收金额','本月交易额','联系方式','标签','联系建议','今日交易','不拿货原因','已勾选']];
   list.forEach(function(d) {
     rows.push([d.name, d.manager, d.hasCycle ? d.cycleDays : '-', d.hasCycle ? d.regularity : '-',
       d.hasCycle ? d.cycleLastDate : d.lastTradeDate, d.noTradeDays, d.receivable, d.monthAmount,
-      d.contact, d.tags, d.suggestion, reasonMap.get(d.name) || '', checkedSet.has(d.name) ? '是' : '否']);
+      d.contact, d.tags, d.suggestion, tradedTodayMap.get(d.name) === true ? '是' : (tradedTodayMap.get(d.name) === false ? '否' : '-'), reasonMap.get(d.name) || '', checkedSet.has(d.name) ? '是' : '否']);
   });
   var lines = rows.map(function(r) { return r.map(function(c) { return '"' + String(c).replace(/"/g, '""') + '"'; }).join(','); });
   var csv = lines.join('\n');
