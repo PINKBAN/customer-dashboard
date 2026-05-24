@@ -453,6 +453,11 @@ function getFilteredData() {
   return list;
 }
 
+function filterContacted() {
+  document.getElementById("filterUrgency").value = "checked";
+  renderTable();
+}
+
 function renderSummary() {
   var data = FULL_DATA.slice();
   if (currentManager !== '全部') data = data.filter(function(d) { return d.manager === currentManager; });
@@ -472,7 +477,7 @@ function renderSummary() {
     '<div class="summary-card" style="border-left:3px solid #1a73e8;"><div class="label">即将到周期 提前联系</div><div class="value" style="color:#1a73e8;">' + sn + '</div></div>' +
     '<div class="summary-card" style="border-left:3px solid #2e7d32;"><div class="label">周期内 可关注</div><div class="value" style="color:#2e7d32;">' + up + '</div></div>' +
 
-    '<div class="summary-card"><div class="label">今日已联系</div><div class="value" style="color:#1a73e8;">' + contacted + '/' + total + '</div></div>';
+    '<div class="summary-card" onclick="filterContacted()" style="cursor:pointer;" title="点击筛选今日已联系客户"><div class="label">今日已联系</div><div class="value" style="color:#1a73e8;">' + contacted + '/' + total + '</div></div>';
 }
 
 function renderTabs() {
