@@ -72,11 +72,12 @@ def load_customers(filepath):
     return customers
 
 def load_sales(filepath):
-    """加载销售明细表，返回 {客户名: [日期列表]}"""
+    """加载销售明细表，返回 {客户名: [日期列表]}, {客户名: {品牌: [日期列表]}}"""
     wb = openpyxl.load_workbook(filepath, data_only=True)
     ws = wb.active
     rows = list(ws.iter_rows(min_row=2, values_only=True))
     customer_dates = defaultdict(list)
+    customer_brands = defaultdict(lambda: defaultdict(list))
     for row in rows:
         name = str(row[1] or "").strip()
         if not name:
@@ -84,7 +85,41 @@ def load_sales(filepath):
         d = parse_date(row[0])
         if d:
             customer_dates[name].append(d)
-    return customer_dates
+            brand = str(row[8] or "").strip()
+            if brand:
+                customer_brands[name][brand].append(d)
+    return customer_dates, customer_brands
+
+def analyze_product_cycles(brand_dates, today):
+    """分析客户各品牌的拿货周期，返回Top品牌列表"""
+    results = []
+    for brand, dates in brand_dates.items():
+        if len(dates) < 2:
+            continue
+        unique_dates = sorted(set(dates))
+        intervals = []
+        for i in range(1, len(unique_dates)):
+            delta = (unique_dates[i] - unique_dates[i-1]).days
+            if delta > 0:
+                intervals.append(delta)
+        if not intervals:
+            continue
+        intervals_arr = np.array(intervals)
+        median_cycle = round(float(np.median(intervals_arr)), 1)
+        mean_cycle = float(np.mean(intervals_arr))
+        cv = float(np.std(intervals_arr)) / mean_cycle if mean_cycle > 0 else 0
+        regularity = round(max(0, min(1, 1 - cv)), 2)
+        last_date = unique_dates[-1]
+        results.append({
+            "brand": brand,
+            "cycleDays": median_cycle,
+            "regularity": regularity,
+            "lastDate": last_date.strftime("%Y-%m-%d"),
+            "count": len(dates)
+        })
+    # 按采购次数排序，取Top5
+    results.sort(key=lambda x: x["count"], reverse=True)
+    return results[:5]
 
 # ---- 周期分析 ----
 def analyze_cycle(dates, today):
@@ -189,18 +224,21 @@ def analyze_cycle(dates, today):
     }
 
 # ---- 匹配客户 ----
-def match_customers(customer_list, sales_dict):
+def match_customers(customer_list, sales_dict, brand_dict):
     """将销售数据中的日期匹配到客户（支持模糊匹配）"""
     # 建立名字到日期的映射
     name_to_dates = {}
+    name_to_brands = {}
     for cname, dates in sales_dict.items():
         name_to_dates[cname] = dates
+        name_to_brands[cname] = dict(brand_dict.get(cname, {}))
 
     # 对每个客户尝试精确匹配和模糊匹配
     for c in customer_list:
         cname = c["name"]
         if cname in name_to_dates and len(name_to_dates[cname]) >= 2:
             c["_dates"] = name_to_dates[cname]
+            c["_brands"] = name_to_brands.get(cname, {})
             continue
         # 尝试模糊匹配
         found = False
@@ -209,15 +247,19 @@ def match_customers(customer_list, sales_dict):
             if cname in sname or sname in cname:
                 if len(dates) >= 2 and not found:
                     c["_dates"] = dates
+                    c["_brands"] = name_to_brands.get(sname, {})
                     found = True
         if not found:
             c["_dates"] = name_to_dates.get(cname, [])
+            c["_brands"] = name_to_brands.get(cname, {})
 
 def build_full_data(customer_list, today):
     """构建 FULL_DATA"""
     result = []
     for i, c in enumerate(customer_list):
         cycle = analyze_cycle(c.get("_dates", []), today)
+        brands = c.get("_brands", {})
+        product_cycles = analyze_product_cycles(brands, today) if brands else []
         item = {
             "id": i,
             "name": c["name"],
@@ -233,6 +275,7 @@ def build_full_data(customer_list, today):
             "level": c["level"],
             "payment": c["payment"],
             "tags": c["tags"],
+            "productSummary": product_cycles,
             **cycle
         }
         result.append(item)
@@ -327,14 +370,16 @@ def main():
     print(f"  未激活客户(>=100天未交易): {inactive}")
 
     print("[2/4] 加载销售明细...")
-    sales = load_sales(sales_file)
+    sales, brands = load_sales(sales_file)
     # 按日期数排序显示top客户
     top = sorted(sales.items(), key=lambda x: len(x[1]), reverse=True)[:5]
+    brand_count = sum(1 for b in brands.values() if b)
     print(f"  有销售记录客户数: {len(sales)}")
+    print(f"  有品牌数据客户数: {brand_count}")
     print(f"  Top5: {[(n, len(d)) for n, d in top]}")
 
     print("[3/4] 匹配客户 + 计算周期...")
-    match_customers(customers, sales)
+    match_customers(customers, sales, brands)
     full_data = build_full_data(customers, today)
 
     # 统计
