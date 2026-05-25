@@ -252,6 +252,7 @@ var lastSync = '';
   renderTable();
   // Then try to load from DB in background
   loadStateFromDB(function() {
+    checkDailyReset();
     renderSummary();
     renderTable();
     startAutoSync();
@@ -263,10 +264,37 @@ function startAutoSync() {
     var active = document.activeElement;
     if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return;
     loadStateFromDB(function() {
+      checkDailyReset();
       renderSummary();
       renderTable();
     }, true);
   }, 6000);
+}
+
+function checkDailyReset() {
+  var today = new Date().toISOString().slice(0, 10);
+  var lastDate = localStorage.getItem('traded_today_date');
+  if (lastDate && lastDate === today) return; // same day, no reset needed
+  // New day: clear all traded_today state
+  if (tradedTodayMap.size > 0) {
+    var cleared = [];
+    tradedTodayMap.forEach(function(v, name) {
+      cleared.push({ name: name, traded_today: null });
+    });
+    tradedTodayMap.clear();
+    // Push cleared values to DB
+    if (SB_URL) {
+      fetch(SB_URL + '/rest/v1/customer_state?on_conflict=name', {
+        method: 'POST',
+        headers: Object.assign({}, sbHeaders(), {
+          'Prefer': 'resolution=merge-duplicates',
+          'Content-Type': 'application/json'
+        }),
+        body: JSON.stringify(cleared)
+      }).catch(function(){});
+    }
+  }
+  localStorage.setItem('traded_today_date', today);
 }
 
 function loadStateFromDB(callback, silent) {
