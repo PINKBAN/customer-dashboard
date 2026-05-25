@@ -142,6 +142,12 @@ tr.row-upcoming { background:#f0fff4; } tr.row-upcoming:hover { background:#e0ff
     <option value="mid">中等 (0.3-0.7)</option>
     <option value="low">低规律 (<0.3)</option>
   </select>
+  <select id="filterTraded" onchange="renderTable()">
+    <option value="all">今日交易：全部</option>
+    <option value="yes">已交易</option>
+    <option value="no">未交易</option>
+  </select>
+  <input type="text" id="filterProduct" placeholder="搜索产品品牌..." oninput="renderTable()" style="width:150px;">
   <button class="btn-outline" onclick="resetFilters()">清除筛选</button>
   <button class="btn-danger" onclick="openBatchModal()">批量填写原因</button>
   <span class="stats-bar" id="statsBar"></span>
@@ -218,6 +224,7 @@ var currentSort = { field: 'cycleUrgency', asc: true };
 var checkedSet = new Map();
 var reasonMap = new Map();
 var tradedTodayMap = new Map();
+var reasonDateMap = new Map(); // reason -> entry date
 var currentUser = localStorage.getItem('ccc_user') || '';
 var lastSync = '';
 
@@ -287,7 +294,7 @@ function loadStateFromDB(callback, silent) {
     var latest = '';
     rows.forEach(function(row) {
       if (row.checked) checkedSet.set(row.name, true);
-      if (row.reason) reasonMap.set(row.name, row.reason);
+                if (row.reason) { reasonMap.set(row.name, row.reason); reasonDateMap.set(row.name, row.reason_date || ''); }
       if (row.traded_today !== null && row.traded_today !== undefined) tradedTodayMap.set(row.name, row.traded_today);
       if (row.updated_at > latest) latest = row.updated_at;
     });
@@ -323,6 +330,7 @@ function saveToDB(updates, callback) {
       name: u.name,
       checked: u.checked,
       reason: u.reason || '',
+      reason_date: u.reason_date || null,
       traded_today: u.traded_today !== undefined ? u.traded_today : null,
       updated_by: currentUser,
       updated_at: new Date().toISOString()
@@ -369,7 +377,7 @@ function showHistory() {
   modal.classList.add('show');
   content.innerHTML = '加载中...';
 
-  fetch(SB_URL + '/rest/v1/customer_state?select=name,checked,reason,updated_by,updated_at&order=updated_at.desc&limit=50', {
+  fetch(SB_URL + '/rest/v1/customer_state?select=name,checked,reason,reason_date,updated_by,updated_at&order=updated_at.desc&limit=50', {
     headers: sbHeaders()
   }).then(function(r) { return r.json(); })
   .then(function(rows) {
@@ -386,10 +394,12 @@ function showHistory() {
     rows.forEach(function(r) {
       var dt = r.updated_at ? new Date(r.updated_at).toLocaleString('zh-CN') : '-';
       var checkedHtml = r.checked ? '<span style="color:#2e7d32;">✓</span>' : '<span style="color:#999;">✗</span>';
+      var reasonDisplay = r.reason || '-';
+      if (r.reason_date) reasonDisplay += ' <span style="font-size:10px;color:#999;">(' + r.reason_date + ')</span>';
       html += '<tr style="border-bottom:1px solid #f0f0f0;">' +
         '<td style="padding:6px 8px;">' + (r.name || '').replace(/</g, '&lt;') + '</td>' +
         '<td style="padding:6px 8px;text-align:center;">' + checkedHtml + '</td>' +
-        '<td style="padding:6px 8px;">' + (r.reason || '-') + '</td>' +
+        '<td style="padding:6px 8px;">' + reasonDisplay + '</td>' +
         '<td style="padding:6px 8px;">' + (r.updated_by || '-') + '</td>' +
         '<td style="padding:6px 8px;color:#888;">' + dt + '</td></tr>';
     });
@@ -454,6 +464,19 @@ function getFilteredData() {
   if (reg === 'high') list = list.filter(function(d) { return d.regularity > 0.7; });
   else if (reg === 'mid') list = list.filter(function(d) { return d.regularity >= 0.3 && d.regularity <= 0.7; });
   else if (reg === 'low') list = list.filter(function(d) { return d.regularity > 0 && d.regularity < 0.3; });
+  var tr = document.getElementById('filterTraded').value;
+  if (tr === 'yes') list = list.filter(function(d) { return tradedTodayMap.get(d.name) === true; });
+  else if (tr === 'no') list = list.filter(function(d) { return tradedTodayMap.get(d.name) === false; });
+  var fp = document.getElementById('filterProduct').value.trim().toLowerCase();
+  if (fp) {
+    list = list.filter(function(d) {
+      if (!d.productSummary || !d.productSummary.length) return false;
+      for (var i = 0; i < d.productSummary.length; i++) {
+        if (d.productSummary[i].brand.toLowerCase().indexOf(fp) !== -1) return true;
+      }
+      return false;
+    });
+  }
   return list;
 }
 
@@ -462,6 +485,8 @@ function resetAllFilters() {
   document.getElementById("filterUrgency").value = "all";
   document.getElementById("filterReceivable").value = "all";
   document.getElementById("filterRegularity").value = "all";
+  document.getElementById("filterTraded").value = "all";
+  document.getElementById("filterProduct").value = "";
   document.getElementById("searchInput").value = "";
   renderTable();
 }
@@ -534,7 +559,7 @@ function toggleAll(cb) {
 function toggleCheck(name) {
   var was = checkedSet.has(name);
   if (was) checkedSet.delete(name); else checkedSet.set(name, true);
-  saveToDB([{ name: name, checked: !was, reason: reasonMap.get(name) || '', traded_today: tradedTodayMap.has(name) ? tradedTodayMap.get(name) : null }]);
+  saveToDB([{ name: name, checked: !was, reason: reasonMap.get(name) || '', reason_date: reasonDateMap.get(name) || null, traded_today: tradedTodayMap.has(name) ? tradedTodayMap.get(name) : null }]);
   renderSummary();
 }
 
@@ -628,7 +653,7 @@ function renderTable() {
       '<td><div class="' + suggClass + '">' + d.suggestion + '</div></td>' +
       '<td style="font-size:10px;max-width:120px;line-height:1.3;">' + getProductSummaryHtml(d.productSummary) + '</td>' +
       '<td><select style="width:auto;min-width:60px;padding:4px 8px;border:1px solid #e0e0e0;border-radius:4px;font-size:12px;" onchange="updateTradedToday(\'' + nameEsc + '\', this.value)" onclick="event.stopPropagation()"><option value="">-</option><option value="yes"' + (tradedToday === true ? ' selected' : '') + '>是</option><option value="no"' + (tradedToday === false ? ' selected' : '') + '>否</option></select></td>' +
-      '<td><input type="text" class="reason-input" placeholder="输入原因..." value="' + reasonEsc + '" onchange="updateReason(\'' + nameEsc + '\', this.value)" onclick="event.stopPropagation()"></td>' +
+      '<td><input type="text" class="reason-input" placeholder="输入原因..." value="' + reasonEsc + '" onchange="updateReason(\'' + nameEsc + '\', this.value)" onclick="event.stopPropagation()">' + (reasonDateMap.get(d.name) ? '<br><span style="font-size:10px;color:#999;">' + reasonDateMap.get(d.name) + '</span>' : '') + '</td>' +
       '</tr>';
   }
 
@@ -643,9 +668,14 @@ function renderTable() {
 }
 
 function updateReason(name, value) {
-  if (value.trim()) reasonMap.set(name, value.trim());
-  else reasonMap.delete(name);
-  saveToDB([{ name: name, checked: checkedSet.has(name), reason: value.trim(), traded_today: tradedTodayMap.has(name) ? tradedTodayMap.get(name) : null }]);
+  if (value.trim()) {
+    reasonMap.set(name, value.trim());
+    reasonDateMap.set(name, new Date().toISOString().slice(0, 10));
+  } else {
+    reasonMap.delete(name);
+    reasonDateMap.delete(name);
+  }
+  saveToDB([{ name: name, checked: checkedSet.has(name), reason: value.trim(), reason_date: reasonDateMap.get(name) || null, traded_today: tradedTodayMap.has(name) ? tradedTodayMap.get(name) : null }]);
 }
 
 function updateTradedToday(name, value) {
@@ -660,6 +690,8 @@ function resetFilters() {
   document.getElementById('filterUrgency').value = 'all';
   document.getElementById('filterReceivable').value = 'all';
   document.getElementById('filterRegularity').value = 'all';
+  document.getElementById('filterTraded').value = 'all';
+  document.getElementById('filterProduct').value = '';
   document.getElementById('selectAll').checked = false;
   renderTable();
 }
@@ -693,7 +725,8 @@ function applyBatchReason() {
   list.forEach(function(d) {
     if (checkedSet.has(d.name)) {
       reasonMap.set(d.name, reason);
-      updates.push({ name: d.name, checked: true, reason: reason });
+      reasonDateMap.set(d.name, new Date().toISOString().slice(0, 10));
+      updates.push({ name: d.name, checked: true, reason: reason, reason_date: reasonDateMap.get(d.name) });
       count++;
     }
   });
