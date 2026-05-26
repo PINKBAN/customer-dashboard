@@ -405,9 +405,12 @@ function showHistory() {
   modal.classList.add('show');
   content.innerHTML = '加载中...';
 
-  fetch(SB_URL + '/rest/v1/customer_state?select=name,checked,reason,reason_date,updated_by,updated_at&order=updated_at.desc&limit=50', {
+  fetch(SB_URL + '/rest/v1/customer_state?select=*&order=updated_at.desc&limit=50', {
     headers: sbHeaders()
-  }).then(function(r) { return r.json(); })
+  }).then(function(r) {
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  })
   .then(function(rows) {
     if (!rows || rows.length === 0) {
       content.innerHTML = '<p style="color:#999;">暂无操作记录</p>';
