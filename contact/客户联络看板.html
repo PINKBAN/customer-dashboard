@@ -256,6 +256,7 @@ var lastSync = '';
     renderSummary();
     renderTable();
     startAutoSync();
+    scheduleMidnightReset();
   });
 })();
 
@@ -295,6 +296,19 @@ function checkDailyReset() {
     }
   }
   localStorage.setItem('traded_today_date', today);
+}
+
+function scheduleMidnightReset() {
+  var now = new Date();
+  var midnight = new Date(now);
+  midnight.setHours(24, 0, 0, 0);
+  var msUntilMidnight = midnight - now;
+  setTimeout(function() {
+    checkDailyReset();
+    renderSummary();
+    renderTable();
+    scheduleMidnightReset(); // schedule next midnight
+  }, msUntilMidnight);
 }
 
 function loadStateFromDB(callback, silent) {
