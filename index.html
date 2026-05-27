@@ -275,7 +275,13 @@ function startAutoSync() {
 function checkDailyReset() {
   var today = new Date().toISOString().slice(0, 10);
   var lastDate = localStorage.getItem('traded_today_date');
-  if (lastDate && lastDate === today) return; // same day, no reset needed
+  // First time: just record today, don't clear anything
+  if (!lastDate) {
+    localStorage.setItem('traded_today_date', today);
+    return;
+  }
+  // Same day: no reset needed
+  if (lastDate === today) return;
   // New day: clear all traded_today state
   if (tradedTodayMap.size > 0) {
     var cleared = [];
@@ -283,7 +289,6 @@ function checkDailyReset() {
       cleared.push({ name: name, traded_today: null });
     });
     tradedTodayMap.clear();
-    // Push cleared values to DB
     if (SB_URL) {
       fetch(SB_URL + '/rest/v1/customer_state?on_conflict=name', {
         method: 'POST',
