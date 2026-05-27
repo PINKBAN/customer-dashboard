@@ -332,7 +332,6 @@ function loadStateFromDB(callback, silent) {
     if (!rows) return;
     checkedSet.clear();
     reasonMap.clear();
-    reasonDateMap.clear();
     tradedTodayMap.clear();
     var latest = '';
     rows.forEach(function(row) {
