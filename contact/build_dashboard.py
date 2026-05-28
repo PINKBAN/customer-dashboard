@@ -2,14 +2,28 @@
 """
 客户联络看板 — 一键更新脚本
 用法: python build_dashboard.py [销售数据.xlsx] [客户联络.xlsx]
-输出: index.html (根目录) + 客户联络看板.html (contact/)
+      python build_dashboard.py --no-upload  # 仅生成本地HTML，不上传Supabase
+
+流程:
+  1. 加载 Excel 数据
+  2. 计算拿货周期
+  3. 生成 FULL_DATA
+  4. 上传到 Supabase (data_snapshots 表)
+  5. 更新 index.html (以 Supabase 为主的轻量版)
+  6. 生成 客户联络看板.html (内嵌数据的离线备用版)
 """
 
 import sys, os, json, math, re
 from datetime import datetime, date, timedelta
 from collections import defaultdict
 import numpy as np
-import openpyxl
+
+# ---- 尝试导入 openpyxl ----
+try:
+    import openpyxl
+except ImportError:
+    print("需要安装 openpyxl: pip install openpyxl")
+    sys.exit(1)
 
 # ---- 配置 ----
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -21,7 +35,6 @@ SUPABASE_KEY = "sb_publishable_sv9TseWVsQ6dhkqnPYbiqw_aW1Df-5D"
 
 # ---- 工具 ----
 def parse_date(val):
-    """解析各种日期格式"""
     if isinstance(val, datetime):
         return val.date()
     if isinstance(val, date):
@@ -34,7 +47,6 @@ def parse_date(val):
             return datetime.strptime(s, fmt).date()
         except ValueError:
             continue
-    # 尝试只取前10个字符
     try:
         return datetime.strptime(s[:10], "%Y-%m-%d").date()
     except ValueError:
@@ -42,7 +54,6 @@ def parse_date(val):
 
 # ---- 加载数据 ----
 def load_customers(filepath):
-    """加载客户联络表"""
     wb = openpyxl.load_workbook(filepath, data_only=True)
     ws = wb.active
     rows = list(ws.iter_rows(min_row=2, values_only=True))
@@ -52,7 +63,6 @@ def load_customers(filepath):
             continue
         contact = str(row[10] or "").strip()
         tags = str(row[16] or "").strip()
-        # 清理标签中的多余逗号
         tags = ",".join(t for t in tags.replace("，", ",").split(",") if t.strip())
         customers.append({
             "name": str(row[0]).strip(),
@@ -69,10 +79,10 @@ def load_customers(filepath):
             "tags": tags,
             "noTradeDays": int(row[4] or 0),
         })
+    wb.close()
     return customers
 
 def load_sales(filepath):
-    """加载销售明细表，返回 {客户名: [日期列表]}, {客户名: {品牌: [日期列表]}}"""
     wb = openpyxl.load_workbook(filepath, data_only=True)
     ws = wb.active
     rows = list(ws.iter_rows(min_row=2, values_only=True))
@@ -88,10 +98,10 @@ def load_sales(filepath):
             brand = str(row[8] or "").strip()
             if brand:
                 customer_brands[name][brand].append(d)
+    wb.close()
     return customer_dates, customer_brands
 
 def analyze_product_cycles(brand_dates, today):
-    """分析客户各品牌的拿货周期，返回Top品牌列表"""
     results = []
     for brand, dates in brand_dates.items():
         if len(dates) < 2:
@@ -117,90 +127,59 @@ def analyze_product_cycles(brand_dates, today):
             "lastDate": last_date.strftime("%Y-%m-%d"),
             "count": len(dates)
         })
-    # 按采购次数排序，取Top5
     results.sort(key=lambda x: x["count"], reverse=True)
     return results[:5]
 
 # ---- 周期分析 ----
 def analyze_cycle(dates, today):
-    """分析客户的拿货周期，返回周期分析结果"""
     if len(dates) < 2:
         return {
-            "hasCycle": False,
-            "cycleDays": 0,
-            "regularity": 0,
-            "predictedNext": "",
-            "daysToNext": 0,
-            "cycleLastDate": "",
-            "cycleUrgency": "normal",
+            "hasCycle": False, "cycleDays": 0, "regularity": 0,
+            "predictedNext": "", "daysToNext": 0,
+            "cycleLastDate": "", "cycleUrgency": "normal",
             "suggestion": "近期有交易，暂无周期数据"
         }
-
-    # 排序去重
     unique_dates = sorted(set(dates))
     if len(unique_dates) < 2:
         return {
-            "hasCycle": False,
-            "cycleDays": 0,
-            "regularity": 0,
-            "predictedNext": "",
-            "daysToNext": 0,
-            "cycleLastDate": "",
-            "cycleUrgency": "normal",
+            "hasCycle": False, "cycleDays": 0, "regularity": 0,
+            "predictedNext": "", "daysToNext": 0,
+            "cycleLastDate": "", "cycleUrgency": "normal",
             "suggestion": "近期有交易，暂无周期数据"
         }
-
-    # 计算间隔
     intervals = []
     for i in range(1, len(unique_dates)):
         delta = (unique_dates[i] - unique_dates[i-1]).days
         if delta > 0:
             intervals.append(delta)
-
     if not intervals:
         return {
-            "hasCycle": False,
-            "cycleDays": 0,
-            "regularity": 0,
-            "predictedNext": "",
-            "daysToNext": 0,
-            "cycleLastDate": "",
-            "cycleUrgency": "normal",
+            "hasCycle": False, "cycleDays": 0, "regularity": 0,
+            "predictedNext": "", "daysToNext": 0,
+            "cycleLastDate": "", "cycleUrgency": "normal",
             "suggestion": "近期有交易，暂无周期数据"
         }
-
     intervals_arr = np.array(intervals)
     median_cycle = round(float(np.median(intervals_arr)), 1)
-
-    # 规律性: 1 - CV (变异系数)，限制在0-1
     mean_cycle = float(np.mean(intervals_arr))
     if mean_cycle > 0:
         cv = float(np.std(intervals_arr)) / mean_cycle
         regularity = round(max(0, min(1, 1 - cv)), 2)
     else:
         regularity = 0
-
-    # 最近一次交易
     last_date = unique_dates[-1]
-
-    # 预测下次拿货日期
     predicted_next = last_date + timedelta(days=int(median_cycle))
     days_to_next = (predicted_next - today).days
-
-    # 紧急程度
-    overdue_threshold = int(median_cycle * 0.5) if median_cycle > 0 else 7
     if days_to_next < -14:
-        urgency = "urgent"      # 超期>14天
+        urgency = "urgent"
     elif days_to_next < 0:
-        urgency = "overdue"     # 已超期
+        urgency = "overdue"
     elif days_to_next <= 3:
-        urgency = "soon"         # 3天内
+        urgency = "soon"
     elif days_to_next <= 7:
-        urgency = "upcoming"     # 一周内
+        urgency = "upcoming"
     else:
         urgency = "normal"
-
-    # 建议文本
     if urgency == "urgent":
         suggestion = f"已超期{abs(days_to_next)}天，需立即联系"
     elif urgency == "overdue":
@@ -211,39 +190,30 @@ def analyze_cycle(dates, today):
         suggestion = f"距拿货周期还有{days_to_next}天"
     else:
         suggestion = f"距拿货周期还有{days_to_next}天"
-
     return {
-        "hasCycle": True,
-        "cycleDays": median_cycle,
+        "hasCycle": True, "cycleDays": median_cycle,
         "regularity": regularity,
         "predictedNext": predicted_next.strftime("%Y-%m-%d"),
         "daysToNext": days_to_next,
         "cycleLastDate": last_date.strftime("%Y-%m-%d"),
-        "cycleUrgency": urgency,
-        "suggestion": suggestion
+        "cycleUrgency": urgency, "suggestion": suggestion
     }
 
 # ---- 匹配客户 ----
 def match_customers(customer_list, sales_dict, brand_dict):
-    """将销售数据中的日期匹配到客户（支持模糊匹配）"""
-    # 建立名字到日期的映射
     name_to_dates = {}
     name_to_brands = {}
     for cname, dates in sales_dict.items():
         name_to_dates[cname] = dates
         name_to_brands[cname] = dict(brand_dict.get(cname, {}))
-
-    # 对每个客户尝试精确匹配和模糊匹配
     for c in customer_list:
         cname = c["name"]
         if cname in name_to_dates and len(name_to_dates[cname]) >= 2:
             c["_dates"] = name_to_dates[cname]
             c["_brands"] = name_to_brands.get(cname, {})
             continue
-        # 尝试模糊匹配
         found = False
         for sname, dates in name_to_dates.items():
-            # 包含匹配
             if cname in sname or sname in cname:
                 if len(dates) >= 2 and not found:
                     c["_dates"] = dates
@@ -254,7 +224,6 @@ def match_customers(customer_list, sales_dict, brand_dict):
             c["_brands"] = name_to_brands.get(cname, {})
 
 def build_full_data(customer_list, today):
-    """构建 FULL_DATA"""
     result = []
     for i, c in enumerate(customer_list):
         cycle = analyze_cycle(c.get("_dates", []), today)
@@ -283,68 +252,115 @@ def build_full_data(customer_list, today):
 
 # ---- 生成 HTML ----
 def generate_html(full_data, template_path, today):
-    """将 FULL_DATA 注入到 HTML 模板中"""
-    # 读取现有模板
     with open(template_path, "r", encoding="utf-8") as f:
         html = f.read()
-
-    # 更新数据截止日期
     date_str = today.strftime("%Y-%m-%d")
     html = re.sub(
         r'数据截止：\d{4}-\d{2}-\d{2}',
         f'数据截止：{date_str}',
         html
     )
-
-    # 替换 FULL_DATA（找到 var FULL_DATA = [...] 并替换）
     json_str = json.dumps(full_data, ensure_ascii=False, separators=(",", ": "))
     new_line = f"var FULL_DATA = {json_str};"
-
-    # 使用正则找到并替换整行
     pattern = r'var FULL_DATA = \[.*?\];'
     html = re.sub(pattern, new_line.replace('\\', '\\\\'), html, count=1)
-
     return html
+
+# ---- Supabase 上传 ----
+def upload_to_supabase(full_data, source_file):
+    """上传 FULL_DATA 到 Supabase data_snapshots 表"""
+    import urllib.request
+    import urllib.error
+
+    api_url = f"{SUPABASE_URL}/rest/v1/data_snapshots"
+
+    # 1) 将旧快照设为 inactive
+    deactivate_req = urllib.request.Request(
+        f"{api_url}?is_active=eq.true",
+        data=json.dumps({"is_active": False}).encode('utf-8'),
+        method='PATCH'
+    )
+    deactivate_req.add_header('apikey', SUPABASE_KEY)
+    deactivate_req.add_header('Authorization', f'Bearer {SUPABASE_KEY}')
+    deactivate_req.add_header('Content-Type', 'application/json')
+    deactivate_req.add_header('Prefer', 'return=minimal')
+    try:
+        urllib.request.urlopen(deactivate_req)
+    except Exception as e:
+        print(f"  [警告] 停用旧快照失败: {e}")
+
+    # 2) 插入新快照
+    payload = json.dumps({
+        "data": full_data,
+        "customer_count": len(full_data),
+        "is_active": True,
+        "source_file": source_file
+    }, ensure_ascii=False).encode('utf-8')
+
+    req = urllib.request.Request(api_url, data=payload, method='POST')
+    req.add_header('apikey', SUPABASE_KEY)
+    req.add_header('Authorization', f'Bearer {SUPABASE_KEY}')
+    req.add_header('Content-Type', 'application/json')
+    req.add_header('Prefer', 'return=minimal')
+
+    try:
+        urllib.request.urlopen(req)
+        return True
+    except urllib.error.HTTPError as e:
+        body = e.read().decode('utf-8', errors='replace') if e.fp else ''
+        print(f"  Supabase HTTP {e.code}: {body[:200]}")
+        return False
+    except Exception as e:
+        print(f"  Supabase 连接失败: {e}")
+        return False
 
 # ---- 主流程 ----
 def main():
     today = date.today()
+    no_upload = '--no-upload' in sys.argv
+
     print(f"=== 客户联络看板 — 数据更新 ===")
     print(f"日期: {today}")
 
-    # 客户联络文件：优先使用最新日期的版本
+    # 找到客户联络文件
     contact_dir = os.path.join(ROOT, "contact")
     contact_file = os.path.join(contact_dir, "客户联络.xlsx")
-    # 如果有更新的客户联络文件（如5.23.xlsx这种18列的），自动使用
-    for f in sorted(os.listdir(contact_dir), reverse=True):
-        fpath = os.path.join(contact_dir, f)
-        if f.endswith('.xlsx') and f != '客户联络.xlsx' and os.path.getsize(fpath) < 500_000:
-            # 检查是否是客户联络表（18列）
+
+    # 自动检测最新版本的客户联络文件（18列，小文件）
+    if os.path.isdir(contact_dir):
+        candidates = []
+        for f in os.listdir(contact_dir):
+            fpath = os.path.join(contact_dir, f)
+            if not f.endswith('.xlsx') or f == '客户联络.xlsx':
+                continue
+            if os.path.getsize(fpath) >= 500_000:
+                continue
             try:
                 wb = openpyxl.load_workbook(fpath, data_only=True)
                 ws = wb.active
                 if ws.max_column == 18 and ws.max_row < 2000:
-                    contact_file = fpath
-                    print(f"自动选择最新客户联络: {os.path.basename(contact_file)}")
-                    wb.close()
-                    break
+                    candidates.append((os.path.getmtime(fpath), fpath))
                 wb.close()
-            except:
+            except Exception:
                 pass
+        if candidates:
+            candidates.sort(reverse=True)
+            contact_file = candidates[0][1]
+            print(f"自动选择最新客户联络: {os.path.basename(contact_file)}")
 
-    if len(sys.argv) > 1:
+    # 找到销售数据文件（大文件 >500KB，且不含"客户联络"）
+    if len(sys.argv) > 1 and sys.argv[1] not in ('--no-upload',):
         sales_file = sys.argv[1]
         if not os.path.isabs(sales_file):
             sales_file = os.path.join(contact_dir, sales_file)
     else:
-        # 自动找最新的销售数据文件（大文件>500KB），排除客户联络表（小文件）
         xlsx_files = []
-        for f in os.listdir(contact_dir):
-            if f.endswith('.xlsx') and '客户联络' not in f:
-                fpath = os.path.join(contact_dir, f)
-                # 销售数据文件通常 > 1MB，客户联络表 < 500KB
-                if os.path.getsize(fpath) > 500_000:
-                    xlsx_files.append((os.path.getmtime(fpath), fpath))
+        if os.path.isdir(contact_dir):
+            for f in os.listdir(contact_dir):
+                if f.endswith('.xlsx') and '客户联络' not in f:
+                    fpath = os.path.join(contact_dir, f)
+                    if os.path.getsize(fpath) > 500_000:
+                        xlsx_files.append((os.path.getmtime(fpath), fpath))
         if xlsx_files:
             xlsx_files.sort(reverse=True)
             sales_file = xlsx_files[0][1]
@@ -361,7 +377,6 @@ def main():
     customers = load_customers(contact_file)
     print(f"  客户数: {len(customers)}")
 
-    # 将超期>=100天的客户归类到"未激活客户"
     inactive = 0
     for c in customers:
         if c["noTradeDays"] >= 100:
@@ -371,7 +386,6 @@ def main():
 
     print("[2/4] 加载销售明细...")
     sales, brands = load_sales(sales_file)
-    # 按日期数排序显示top客户
     top = sorted(sales.items(), key=lambda x: len(x[1]), reverse=True)[:5]
     brand_count = sum(1 for b in brands.values() if b)
     print(f"  有销售记录客户数: {len(sales)}")
@@ -382,7 +396,6 @@ def main():
     match_customers(customers, sales, brands)
     full_data = build_full_data(customers, today)
 
-    # 统计
     with_cycle = sum(1 for d in full_data if d["hasCycle"])
     urgent = sum(1 for d in full_data if d["cycleUrgency"] == "urgent")
     overdue = sum(1 for d in full_data if d["cycleUrgency"] == "overdue")
@@ -391,28 +404,38 @@ def main():
     print(f"  紧急(超期>14天): {urgent}")
     print(f"  超期: {overdue}")
 
-    print("[4/4] 生成 HTML...")
+    print("[4/4] 生成 HTML + 上传 Supabase...")
 
-    # 确保模板存在
     if not os.path.exists(TEMPLATE_HTML):
         print(f"  错误: 模板文件不存在 {TEMPLATE_HTML}")
         sys.exit(1)
 
-    html = generate_html(full_data, TEMPLATE_HTML, today)
+    # 上传到 Supabase
+    source_name = os.path.basename(sales_file)
+    if not no_upload:
+        ok = upload_to_supabase(full_data, source_name)
+        if ok:
+            print(f"  -> Supabase 上传成功 ({len(full_data)} 条客户数据)")
+        else:
+            print("  -> Supabase 上传失败，仅更新本地文件")
+    else:
+        print("  -> 跳过 Supabase 上传 (--no-upload)")
 
-    # 写入文件
+    # 生成轻量版 index.html（Supabase 为主的版本）
+    html = generate_html(full_data, TEMPLATE_HTML, today)
     with open(OUTPUT_HTML, "w", encoding="utf-8") as f:
         f.write(html)
     print(f"  -> {OUTPUT_HTML}")
 
+    # 生成离线备用版 客户联络看板.html（内嵌数据）
+    html2 = generate_html(full_data, TEMPLATE_HTML, today)
     with open(OUTPUT_HTML2, "w", encoding="utf-8") as f:
-        f.write(html)
+        f.write(html2)
     print(f"  -> {OUTPUT_HTML2}")
 
-    print("\n完成! 可以提交到 GitHub:")
-    print('  git add index.html "contact/客户联络看板.html"')
-    print(f'  git commit -m "数据更新 {today}"')
-    print("  git push origin main")
+    print("\n完成!")
+    if not no_upload:
+        print("  所有用户刷新页面即可看到最新数据（无需重新部署 HTML）")
 
 if __name__ == "__main__":
     main()
