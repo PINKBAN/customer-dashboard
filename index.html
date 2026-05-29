@@ -277,21 +277,14 @@ function checkDailyReset() {
   }
   // Same day: no reset needed
   if (lastDate === today) return;
-  // New day: clear all traded_today state
+  // New day: clear all traded_today state (use PATCH to only touch that column)
   if (tradedTodayMap.size > 0) {
-    var cleared = [];
-    tradedTodayMap.forEach(function(v, name) {
-      cleared.push({ name: name, traded_today: null });
-    });
     tradedTodayMap.clear();
     if (SB_URL) {
-      fetch(SB_URL + '/rest/v1/customer_state?on_conflict=name', {
-        method: 'POST',
-        headers: Object.assign({}, sbHeaders(), {
-          'Prefer': 'resolution=merge-duplicates',
-          'Content-Type': 'application/json'
-        }),
-        body: JSON.stringify(cleared)
+      fetch(SB_URL + '/rest/v1/customer_state?traded_today=not.is.null', {
+        method: 'PATCH',
+        headers: Object.assign({}, sbHeaders(), { 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ traded_today: null })
       }).catch(function(){});
     }
   }
@@ -332,10 +325,12 @@ function loadStateFromDB(callback, silent) {
     if (!rows) return;
     checkedSet.clear();
     reasonMap.clear();
+    reasonDateMap.clear();
+    tradedTodayMap.clear();
     var latest = '';
     rows.forEach(function(row) {
       if (row.checked) checkedSet.set(row.name, true);
-                if (row.reason) { reasonMap.set(row.name, row.reason); if (row.reason_date) reasonDateMap.set(row.name, row.reason_date); }
+      if (row.reason) { reasonMap.set(row.name, row.reason); if (row.reason_date) reasonDateMap.set(row.name, row.reason_date); }
       if (row.traded_today !== null && row.traded_today !== undefined) tradedTodayMap.set(row.name, row.traded_today);
       if (row.updated_at > latest) latest = row.updated_at;
     });
@@ -411,17 +406,14 @@ function updateSyncStatus() {
 
 function saveToDB(updates, callback) {
   // Use upsert via POST with Prefer: resolution=merge-duplicates
+  // Only include fields that are explicitly provided to avoid overwriting
   var rows = [];
   updates.forEach(function(u) {
-    rows.push({
-      name: u.name,
-      checked: u.checked,
-      reason: u.reason || '',
-      reason_date: u.reason_date || null,
-      traded_today: u.traded_today !== undefined ? u.traded_today : null,
-      updated_by: currentUser,
-      updated_at: new Date().toISOString()
-    });
+    var row = { name: u.name, updated_by: currentUser, updated_at: new Date().toISOString() };
+    if (u.checked !== undefined) row.checked = u.checked;
+    if (u.reason !== undefined) { row.reason = u.reason || ''; row.reason_date = u.reason_date || null; }
+    if (u.traded_today !== undefined) row.traded_today = u.traded_today;
+    rows.push(row);
   });
 
   fetch(SB_URL + '/rest/v1/customer_state?on_conflict=name', {
@@ -510,8 +502,7 @@ function saveAll() {
     updates.push({
       name: name,
       checked: checkedSet.has(name),
-      reason: reasonMap.get(name) || '',
-      traded_today: tradedTodayMap.has(name) ? tradedTodayMap.get(name) : null
+      reason: reasonMap.get(name) || ''
     });
   });
   if (updates.length === 0) { alert('没有需要保存的数据'); return; }
@@ -657,7 +648,7 @@ function toggleAll(cb) {
 function toggleCheck(name) {
   var was = checkedSet.has(name);
   if (was) checkedSet.delete(name); else checkedSet.set(name, true);
-  saveToDB([{ name: name, checked: !was, reason: reasonMap.get(name) || '', reason_date: reasonDateMap.get(name) || null, traded_today: tradedTodayMap.has(name) ? tradedTodayMap.get(name) : null }]);
+  saveToDB([{ name: name, checked: !was, reason: reasonMap.get(name) || '', reason_date: reasonDateMap.get(name) || null }]);
   renderSummary();
 }
 
@@ -773,7 +764,7 @@ function updateReason(name, value) {
     reasonMap.delete(name);
     reasonDateMap.delete(name);
   }
-  saveToDB([{ name: name, checked: checkedSet.has(name), reason: value.trim(), reason_date: reasonDateMap.get(name) || null, traded_today: tradedTodayMap.has(name) ? tradedTodayMap.get(name) : null }]);
+  saveToDB([{ name: name, checked: checkedSet.has(name), reason: value.trim(), reason_date: reasonDateMap.get(name) || null }]);
 }
 
 function updateTradedToday(name, value) {
