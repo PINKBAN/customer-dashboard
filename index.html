@@ -270,24 +270,13 @@ function startAutoSync() {
 function checkDailyReset() {
   var today = new Date().toISOString().slice(0, 10);
   var lastDate = localStorage.getItem('traded_today_date');
-  // First time: just record today, don't clear anything
   if (!lastDate) {
     localStorage.setItem('traded_today_date', today);
     return;
   }
-  // Same day: no reset needed
   if (lastDate === today) return;
-  // New day: clear all traded_today state (use PATCH to only touch that column)
-  if (tradedTodayMap.size > 0) {
-    tradedTodayMap.clear();
-    if (SB_URL) {
-      fetch(SB_URL + '/rest/v1/customer_state?traded_today=not.is.null', {
-        method: 'PATCH',
-        headers: Object.assign({}, sbHeaders(), { 'Content-Type': 'application/json' }),
-        body: JSON.stringify({ traded_today: null })
-      }).catch(function(){});
-    }
-  }
+  // New day: only clear LOCAL traded_today, never touch the database globally
+  tradedTodayMap.clear();
   localStorage.setItem('traded_today_date', today);
 }
 
@@ -331,7 +320,7 @@ function loadStateFromDB(callback, silent) {
     rows.forEach(function(row) {
       if (row.checked) checkedSet.set(row.name, true);
       if (row.reason) { reasonMap.set(row.name, row.reason); if (row.reason_date) reasonDateMap.set(row.name, row.reason_date); }
-      if (row.traded_today !== null && row.traded_today !== undefined) tradedTodayMap.set(row.name, row.traded_today);
+      if (row.traded_today !== null && row.traded_today !== undefined && row.traded_today_date === new Date().toISOString().slice(0, 10)) tradedTodayMap.set(row.name, row.traded_today);
       if (row.updated_at > latest) latest = row.updated_at;
     });
     lastSync = latest ? new Date(latest).toLocaleString('zh-CN') : '';
@@ -412,7 +401,7 @@ function saveToDB(updates, callback) {
     var row = { name: u.name, updated_by: currentUser, updated_at: new Date().toISOString() };
     if (u.checked !== undefined) row.checked = u.checked;
     if (u.reason !== undefined) { row.reason = u.reason || ''; row.reason_date = u.reason_date || null; }
-    if (u.traded_today !== undefined) row.traded_today = u.traded_today;
+    if (u.traded_today !== undefined) { row.traded_today = u.traded_today; row.traded_today_date = new Date().toISOString().slice(0, 10); }
     rows.push(row);
   });
 
