@@ -15,6 +15,7 @@ body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei"
 .summary-card { background:#fff; border-radius:10px; padding:14px 18px; min-width:130px; flex:1; box-shadow:0 1px 4px rgba(0,0,0,0.08); display:flex; flex-direction:column; gap:4px; }
 .summary-card .label { font-size:11px; color:#888; }
 .summary-card .value { font-size:26px; font-weight:700; }
+.summary-card.active { transform:scale(1.04); box-shadow:0 0 0 2px #1a73e8,0 4px 16px rgba(26,115,232,0.25); }
 .toolbar { display:flex; gap:12px; padding:0 32px 12px; flex-wrap:wrap; align-items:center; }
 .toolbar input[type="text"] { padding:8px 14px; border:1px solid #ddd; border-radius:6px; font-size:14px; width:260px; outline:none; }
 .toolbar input[type="text"]:focus { border-color:#1a73e8; }
@@ -586,8 +587,18 @@ function filterContacted() {
   renderTable();
 }
 
+function getActiveSummaryCard() {
+  var ur = document.getElementById('filterUrgency').value;
+  if (ur !== 'all') return ur; // urgent/overdue/soon/upcoming/checked
+  if (currentCustomFilter === 'hasCycle') return 'hasCycle';
+  var tr = document.getElementById('filterTraded').value;
+  if (tr !== 'all') return ''; // traded filter active, don't highlight any urgency card
+  return 'all'; // no filter = highlight 客户总数
+}
+
 function renderSummary() {
   var data = FULL_DATA.slice();
+  var active = getActiveSummaryCard();
   if (currentManager !== '全部') data = data.filter(function(d) { return d.manager === currentManager; });
   var total = data.length;
   var urg = data.filter(function(d) { return d.cycleUrgency === 'urgent'; }).length;
@@ -598,14 +609,14 @@ function renderSummary() {
   var wc = data.filter(function(d) { return d.hasCycle; }).length;
 
   document.getElementById('summary').innerHTML =
-    '<div class="summary-card" onclick="resetAllFilters()" style="cursor:pointer;" title="点击显示全部客户"><div class="label">客户总数</div><div class="value" style="color:#1a73e8;">' + total + '</div></div>' +
-    '<div class="summary-card" onclick="filterHasCycle()" style="cursor:pointer;" title="点击筛选有周期数据客户"><div class="label">有周期数据</div><div class="value" style="color:#2e7d32;">' + wc + '</div></div>' +
-    '<div class="summary-card" onclick="filterByUrgency(\'urgent\')" style="cursor:pointer;border-left:3px solid #e53935;" title="点击筛选紧急客户"><div class="label">超期>7天 立即联系</div><div class="value" style="color:#e53935;">' + urg + '</div></div>' +
-    '<div class="summary-card" onclick="filterByUrgency(\'overdue\')" style="cursor:pointer;border-left:3px solid #ef6c00;" title="点击筛选超期客户"><div class="label">已超期 建议联系</div><div class="value" style="color:#ef6c00;">' + ovd + '</div></div>' +
-    '<div class="summary-card" onclick="filterByUrgency(\'soon\')" style="cursor:pointer;border-left:3px solid #1a73e8;" title="点击筛选即将到周期客户"><div class="label">即将到周期 提前联系</div><div class="value" style="color:#1a73e8;">' + sn + '</div></div>' +
-    '<div class="summary-card" onclick="filterByUrgency(\'upcoming\')" style="cursor:pointer;border-left:3px solid #2e7d32;" title="点击筛选可关注客户"><div class="label">周期内 可关注</div><div class="value" style="color:#2e7d32;">' + up + '</div></div>' +
+    '<div class="summary-card' + (active === 'all' ? ' active' : '') + '" onclick="resetAllFilters()" style="cursor:pointer;" title="点击显示全部客户"><div class="label">客户总数</div><div class="value" style="color:#1a73e8;">' + total + '</div></div>' +
+    '<div class="summary-card' + (active === 'hasCycle' ? ' active' : '') + '" onclick="filterHasCycle()" style="cursor:pointer;" title="点击筛选有周期数据客户"><div class="label">有周期数据</div><div class="value" style="color:#2e7d32;">' + wc + '</div></div>' +
+    '<div class="summary-card' + (active === 'urgent' ? ' active' : '') + '" onclick="filterByUrgency(\'urgent\')" style="cursor:pointer;border-left:3px solid #e53935;" title="点击筛选紧急客户"><div class="label">超期>7天 立即联系</div><div class="value" style="color:#e53935;">' + urg + '</div></div>' +
+    '<div class="summary-card' + (active === 'overdue' ? ' active' : '') + '" onclick="filterByUrgency(\'overdue\')" style="cursor:pointer;border-left:3px solid #ef6c00;" title="点击筛选超期客户"><div class="label">已超期 建议联系</div><div class="value" style="color:#ef6c00;">' + ovd + '</div></div>' +
+    '<div class="summary-card' + (active === 'soon' ? ' active' : '') + '" onclick="filterByUrgency(\'soon\')" style="cursor:pointer;border-left:3px solid #1a73e8;" title="点击筛选即将到周期客户"><div class="label">即将到周期 提前联系</div><div class="value" style="color:#1a73e8;">' + sn + '</div></div>' +
+    '<div class="summary-card' + (active === 'upcoming' ? ' active' : '') + '" onclick="filterByUrgency(\'upcoming\')" style="cursor:pointer;border-left:3px solid #2e7d32;" title="点击筛选可关注客户"><div class="label">周期内 可关注</div><div class="value" style="color:#2e7d32;">' + up + '</div></div>' +
 
-    '<div class="summary-card" onclick="filterContacted()" style="cursor:pointer;" title="点击筛选今日已联系客户"><div class="label">今日已联系</div><div class="value" style="color:#1a73e8;">' + contacted + '/' + total + '</div></div>';
+    '<div class="summary-card' + (active === 'checked' ? ' active' : '') + '" onclick="filterContacted()" style="cursor:pointer;" title="点击筛选今日已联系客户"><div class="label">今日已联系</div><div class="value" style="color:#1a73e8;">' + contacted + '/' + total + '</div></div>';
 }
 
 function renderTabs() {
