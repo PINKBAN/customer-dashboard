@@ -85,19 +85,47 @@ def load_customers(filepath):
 def load_sales(filepath):
     wb = openpyxl.load_workbook(filepath, data_only=True)
     ws = wb.active
+    # 读取表头，自动识别列位置
+    header = [str(c.value or "").strip() for c in ws[1]]
+    date_col = customer_col = brand_col = None
+    # 日期列优先级：单据日期 > 出库日期 > 带"日期"的列
+    for keyword in ("单据日期", "出库日期"):
+        for i, h in enumerate(header):
+            if h == keyword:
+                date_col = i
+                break
+        if date_col is not None:
+            break
+    if date_col is None:
+        for i, h in enumerate(header):
+            if "日期" in h:
+                date_col = i
+                break
+    for i, h in enumerate(header):
+        if customer_col is None and h == "客户":
+            customer_col = i
+        if brand_col is None and ("产品品牌" in h or "商品分类" in h):
+            brand_col = i
+    # 兜底：用老格式默认值
+    if date_col is None:
+        date_col = 0
+    if customer_col is None:
+        customer_col = 1
+    print(f"  销售表列识别: 日期=col{date_col}, 客户=col{customer_col}, 品牌=col{brand_col}")
     rows = list(ws.iter_rows(min_row=2, values_only=True))
     customer_dates = defaultdict(list)
     customer_brands = defaultdict(lambda: defaultdict(list))
     for row in rows:
-        name = str(row[1] or "").strip()
+        name = str(row[customer_col] or "").strip() if customer_col < len(row) else ""
         if not name:
             continue
-        d = parse_date(row[0])
+        d = parse_date(row[date_col]) if date_col < len(row) else None
         if d:
             customer_dates[name].append(d)
-            brand = str(row[8] or "").strip()
-            if brand:
-                customer_brands[name][brand].append(d)
+            if brand_col is not None and brand_col < len(row):
+                brand = str(row[brand_col] or "").strip()
+                if brand:
+                    customer_brands[name][brand].append(d)
     wb.close()
     return customer_dates, customer_brands
 
